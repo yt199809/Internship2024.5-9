@@ -21,7 +21,7 @@ It is known that in these kind of data, only 2-3% of the sequences are microbial
 Therefore, it is almost beyond wildest dream using the data to study AMR and their expression, especially imagine how many microbes will penetrate the cell and how many of them have ARGs......
 Anyway.
 
-In this project, the code will be used to explore microbial signature between MSI and MSS subtypes of microbial data.
+In this project, the code will be used to explore microbial signature between MSI and MSS CRC (colorectal cancer) subtypes .
 The decotamination process was done with a pipline made by another student Birgit called CanMicrob. Import data will be the abundance feature table outputed by a kraken/braken combination.
 
 That's the info.
