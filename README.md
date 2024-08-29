@@ -18,7 +18,9 @@ Sad story.
 But still, there are quite a lot of people interesting in digging these data, like this group. And that's why they try to utilize this bulk transcriptome to explore microbiome and even ARGs……..
 
 It is known that in these kind of data, only 2-3% of the sequences are microbial data, within these microbial data, 80-90% are rRNA. Therefore, it can be really hard to investigate mRNA expression data.
-Therefore, it is almost beyond wildest dream using the data to study AMR and their expression, especially imagine how many microbes will penetrate the cell and how many of them have ARGs......
+Therefore, it is almost beyond wildest dream using the data to study ARG directly, especially imagine how many microbes will penetrate the cell and how many of them have ARGs......
+This goal is really unable to be achieved without very careful experimental design, let alone using these transcriptome data directly.........
+
 Anyway.
 
 In this project, the code will be used to explore microbial signature between MSI and MSS CRC (colorectal cancer) subtypes .
