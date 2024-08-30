@@ -1,7 +1,6 @@
 ## For who use the scripts
 
-Be caution when you use the script, cause it is a 'mediocre' work hhhhh!!! The codes are used to explore microbial signature. 
-(It gradually turns out to be digging AMR genes, although I do not think it is doable and this is definitely a wrong dataset to use)
+Be caution when you use the script, cause it is a 'mediocre' work hhhhh!!! I guess no one will have a look on it, so basiclly it is tutorial for myself...
 
 ## Aims of the codes
 
