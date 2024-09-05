@@ -1,0 +1,167 @@
+---
+title: "Relative abundance, alpha diversity and beta diversity"
+author: "yt"
+date: "2024/8/30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Relative abundance, alpha diversity and beta diversity
+
+In this part we will calculate the relative abundance, alpha diversity and beta diversity of the S6 object (tse) that your built in step1. Mainly package microeco will be used here.
+
+```{r load packages}
+
+library(tidyr)
+library(dplyr)
+library(magrittr)
+library(SummarizedExperiment)
+library(microeco)
+library(ggplot2)
+library(patchwork)
+library(ggalluvial)
+#load the one you saved under your directory
+load(file = 'tse.R')
+```
+
+## Relative abundance
+
+```{r}
+#clean rowdata
+rowdata %<>% tidy_taxonomy
+dataset$tidy_dataset()
+
+#raryfacation size is calculated with qiime, richness rich to platue until sequence depth of 65000
+
+dataset$rarefy_samples(sample.size =65000)
+print(dataset)
+dataset$sample_sums() %>% range
+
+#calculate relative abundance
+dataset$cal_abund()
+dataset$taxa_abund$Phylum[1:5, 1:5]
+dataset$save_abund(merge_all = TRUE, sep = "\t", rm_un = TRUE, rm_pattern = "__$|Sedis$", quote = FALSE)
+
+#phylum level top10  relative abundance
+t1 <- trans_abund$new(dataset = dataset, taxrank = "Phylum", ntaxa = 10)
+t1$plot_bar(others_color = "grey70", facet='MSI.Status',xtext_keep = FALSE, legend_text_italic = FALSE)+
+  theme(legend.text = element_text(size = 17),
+        axis.title.y = element_text(size=15),
+        axis.text.y =  element_text(size=12))
+
+
+#genus level top10  relative abundance
+t1 <- trans_abund$new(dataset = dataset, taxrank = "Genus", ntaxa = 10)
+t1$plot_bar(others_color = "grey70", facet='MSI.Status',xtext_keep = FALSE, legend_text_italic = FALSE)+
+  theme(legend.text = element_text(size = 17),
+        axis.title.y = element_text(size=15),
+        axis.text.y =  element_text(size=12))
+
+```
+
+## Alpha diversity
+
+```{r alpha diversity}
+dataset$cal_alphadiv(PD = FALSE) #we do not have phylogenetic tree
+t1 <- trans_alpha$new(dataset = dataset, group = "MSI.Status")
+head(t1$data_stat)
+t1$cal_diff(method = "anova")
+print(t1$res_diff)
+t1$plot_alpha(measure = "Shannon", boxplot_add = "dotplot", xtext_size = 15)
+t1$plot_alpha(measure = "Observed", boxplot_add = "dotplot", xtext_size = 15)
+```
+
+## Beta diversity
+
+```{r betadiversity}
+
+#calculate based on bray-curtis
+dataset$cal_betadiv(unifrac = F)
+t1 <- trans_beta$new(dataset = dataset, group = 'MSI.Status',measure = "bray")
+t1$cal_ordination(ordination = "PCoA")
+
+#calculate permanova
+t1$cal_manova(group = 'MSI.Status')
+t1$res_manova
+
+p1=t1$plot_ordination(plot_color = "MSI.Status", plot_shape = "MSI.Status", plot_type = c("point", "ellipse"))+
+  geom_vline(aes(xintercept = 0),linetype="dotted")+
+  geom_hline(aes(yintercept = 0),linetype="dotted")+
+  theme(panel.background = element_rect(fill='white', colour='black'),
+        panel.grid=element_blank(), 
+        axis.title = element_text(color='black',size=16),
+        axis.title.x=element_text(colour='black', size=16),
+        axis.title.y=element_text(colour='black', size=16),
+        axis.text=element_text(colour='black',size=16),
+        legend.title=element_text(size =16,face = "bold"),
+        legend.text=element_text(size=16),
+        legend.key=element_blank(),legend.position = c(0.85,0.13),
+        legend.background = element_rect(colour = "black"),
+        legend.key.height=unit(1,"cm"))+
+  guides(fill = guide_legend(ncol = 1))
+
+
+new=t1$res_ordination$scores
+
+p2 <- ggplot(new,aes(MSI.Status,PCo1)) +
+  geom_boxplot(aes(fill = MSI.Status)) +
+  stat_compare_means(method = "t.test",method.args = list(alternative = "two.sided"),
+                     label='p.signif',hide.ns = T) +
+  coord_flip() +
+  scale_fill_manual(values=c("#1B9E77", "#D95F02")) +
+  theme_bw()+
+  theme(axis.ticks.length = unit(0.4,"lines"), 
+        axis.ticks = element_line(color='black'),
+        axis.line = element_line(colour = "black"), 
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_text(colour='black',size=20,face = "bold"),
+        axis.text.x=element_blank(),
+        legend.position = "none")
+
+
+p3 <- ggplot(new,aes(MSI.Status,PCo2)) +
+  geom_boxplot(aes(fill = MSI.Status)) +
+  stat_compare_means(method = "wilcox",
+                     method.args = list(alternative = "two.sided"),
+                     label='p.signif',hide.ns = T) +
+  scale_fill_manual(values=c("#1B9E77", "#D95F02")) +
+  theme_bw()+
+  theme(axis.ticks.length = unit(0.4,"lines"), 
+        axis.ticks = element_line(color='black'),
+        axis.line = element_line(colour = "black"), 
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.text.x=element_text(colour='black',size=20,face = "bold"),
+        legend.position = "none")
+
+p4 <- ggplot(new, aes(PCo1, PCo2)) +
+  geom_text(aes(x = -0.5,y = 0.6,label = paste("PERMANOVA:\ndf = ",t1$res_manova$`Df`[1],  "\nR2 = ",round(t1$res_manova$`R2`[1],3),  "\np-value = ",t1$res_manova$`Pr(>F)`[1],sep = "")),
+            size = 5) +
+  theme_bw() +
+  xlab("") + ylab("") +
+  theme(panel.grid=element_blank(), 
+        axis.title = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank())
+
+
+p2 + p4 + p1 + p3 + plot_layout(heights = c(1,4),widths = c(4,1),ncol = 2,nrow = 2)
+
+```
+
+```{r difference in distance}
+t1 <- trans_beta$new(dataset = dataset, group = "MSI.Status", measure = "bray")
+t1$cal_group_distance(within_group = TRUE)
+t1$cal_group_distance_diff(method = "wilcox",p.adjust.methods='fdr')
+t1$plot_group_distance(boxplot_add = "mean")
+```
+
+## 
+
+## 

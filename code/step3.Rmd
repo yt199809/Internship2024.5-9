@@ -1,0 +1,273 @@
+---
+title: "Differential abundant species"
+author: "yt"
+date: "2024/8/30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Differential Abundant Microbes
+
+Differential abundant microbes has been an important object in microbial studies. However, there has been no conclusion which method is the best, but it is suggested to use multiple methods and see their consent result.
+
+A big part of the code is learned (copied :) ) from course of Radboud University. Love them!!!
+
+<https://microbiome.github.io/course_2021_radboud/microbiome-data-exploration.html>
+
+```{r load packages}
+library(tidyr)
+library(dplyr)
+library(magrittr)
+library(SummarizedExperiment)
+library(microeco)
+library(ggplot2)
+library(mia)
+library(IOBR)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(ComplexHeatmap)
+load(file = 'tse.R')
+```
+
+## Wilcoxon rank sum test
+
+This is an non-parametric method that you do not need to consider distribution.
+
+```{r wilcox method}
+
+# Using this way to easily aggregate according to genus
+tse_genus <- agglomerateByRank(tse, rank = "Genus")
+
+# first step is to normalize the sparse microbial matrix using clr
+tse_genus <- transformCounts(tse_genus, method = "clr", pseudocount = 1)
+
+# extract the abundant data and transpose dataframe
+abundance_analysis_data <- t(assay(tse_genus, "clr"))
+abundance_analysis_data =as.data.frame(abundance_analysis_data)
+abundance_analysis_data <- cbind(
+  abundance_analysis_data, 
+  MSI.Status= colData(tse_genus)$MSI.Status
+)
+
+genera <- names(abundance_analysis_data[, !names(abundance_analysis_data) %in% "MSI.Status"])
+
+wilcoxon_p <- c() # Initialize empty vector for p-values
+
+# Do "for loop" over selected column names
+for (i in genera) {
+  
+  result <- wilcox.test(abundance_analysis_data[, i] ~ MSI.Status,
+                        data = abundance_analysis_data)
+  
+  # Stores p-value to the vector with this column name
+  wilcoxon_p[[i]]  <- result$p.value
+  
+}
+
+wilcoxon_p <- data.frame(taxa =  names(wilcoxon_p),
+                         p_raw = unlist(wilcoxon_p))
+wilcoxon_p$p_adjusted <- p.adjust(wilcoxon_p$p_raw, method = "fdr")
+
+#filter resut with p.adj<0.05
+wilcoxon_p1=wilcoxon_p %>% filter(p_adjusted<0.05)
+
+print(wilcoxon_p1)
+```
+
+DESeq method is also applied here, although the method is spcially designed for RNA-seq data. It is said the method may produce false positive, and not that perfect for sparse data, however, still seen used in many papers.
+
+```{r DESeq2}
+
+##DEseq2 method
+library(DESeq2)
+ds2 <- DESeqDataSet(tse_genus, ~MSI.Status)
+# Does the analysis
+dds <- DESeq(ds2)
+res <- results(dds)
+df <- as.data.frame(res)
+df <- df %>% arrange(log2FoldChange, padj)
+logFC_t = 1.5
+pvalue_t = 0.05
+#up-regulated
+k1 = (df$padj < pvalue_t)&(df$log2FoldChange < -logFC_t);table(k1)
+k2 = (df$pvalue < pvalue_t)&(df$log2FoldChange > logFC_t);table(k2)
+df$change = ifelse(k1,"DOWN",ifelse(k2,"UP","NOT"))
+df1 = df[df$change != "NOT", ]
+df1$taxa=rownames(df1)
+print(df1)
+```
+
+A mostly used method is LEfSe. It is embedded in microeco package
+
+```{r lefse}
+
+t1 <- trans_diff$new(dataset = dataset, method = "lefse", group = "MSI.Status", alpha = 0.05,taxa_level = 'Genus',p_adjust_method = 'none')
+lefseq_result=data.frame(t1$res_diff)
+lefseq_result=lefseq_result[lefseq_result$LDA>2 & lefseq_result$P.adj<0.05,]
+lefseq_result=lefseq_result %>% separate(Taxa,into = c('Kingdom','Phylum','Class','Order','Family','Genus'),sep='\\|')
+g1=t1$plot_diff_bar(threshold = 2,keep_prefix = F,group_order = c("MSI","MSS"),color_values = c("#1B9E77", "#D95F02"))+
+  theme(axis.text.y = element_text(face = 'italic'),legend.position = 'none')
+g2=t1$plot_diff_abund(group_order = c("MSI", "MSS"),add_sig = T,keep_prefix = F,select_taxa = t1$plot_diff_bar_taxa)+
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
+  
+gridExtra::grid.arrange(g1, g2, ncol = 2, nrow = 1, widths = c(2, 1.7))
+```
+
+Now is time to find genera agree with over two methods and see their relationship with DEGs.
+
+Using DESeq, edgeR or limma are common in identification of DEGs. However, all three tools have hypothesis of the distribution of the expression data. Therefore, only raw count can be accepted.
+
+This comment is very classic.
+
+![](C:/Users/yutong/AppData/Local/RStudio/tmp/paste-BD04D079.png)
+
+But in this single cell paper, they only provide tpm data, and I have no interest to analyse it from raw fastq file. Luckily, a paper pulished indicate that nonparametric method like Wilxcoxon rank sum test can also be used to identify DEGs. Also, the result of this part was shown to have good prediction performance in ML model (almost perfect in differentiate two groups.). Therefore I guess that still works.
+
+<https://genomebiology.biomedcentral.com/articles/10.1186/s13059-022-02648-4>
+
+## Finding Differential Expressed Genes with tpm
+
+(the title is hilarious but make sense in certain degree)
+
+This step can be computational intensive, therefore taking long time running. If you do not want to waste your time then you can directly load data
+
+```{r}
+mside_result=read.csv('MSIde_exp.csv')
+rownames(mside_result)=mside_result$X
+mside_result=mside_result[,-1]
+```
+
+If you are free you could run the following code, or knowing how the result came out
+
+```{r DEGs}
+
+#load expression matrix
+exp=read.csv('SGCRCdata/SG-BULK_salmonTPM.csv',header=T)
+rownames(exp)=exp[,1]
+
+#annotate gene name 
+eset <- anno_eset(eset = exp, annotation = anno_grch38,symbol = 'symbol', probe = "id",method='mean');head(eset)
+eset=eset[,-1]
+
+#filter low expressed genes
+exp1 = eset[apply(eset, 1, function(x) sum(x > 0) > 0.5*ncol(eset)), ]
+nrow(exp1)
+
+#recognize abnormal samples (accoding to Z scale)
+
+res <- find_outlier_samples(eset = exp1, project = "ACRG", show_plot = TRUE)
+eset1 <- exp1[, !colnames(exp1)%in%res]
+
+#log2 normalization
+eset1=log2(eset1+1)
+
+#further filtration of metadata
+filtered_metadata <- filtered_metadata %>% filter(patient_id %in% colnames(eset1) & MSI.Status %in% c('MSS', 'MSI'))
+
+#filter expression matrix
+newcount=eset1[,colnames(eset1) %in% rownames(filtered_metadata)]
+gl=filtered_metadata[match(colnames(counts),rownames(filtered_metadata)),]
+group_list=factor(gl$MSI.Status)
+
+counts=data.frame(t(counts))
+counts <- cbind(
+  counts, 
+  MSI.Status = group_list
+)
+
+#Identify DEG with wilcoxon, you can see the code is actually the same 
+
+wilcoxon_de <- c() # Initialize empty vector for p-values
+genera <- colnames(counts)[1:(ncol(counts) - 1)]  
+# Do "for loop" over selected column names
+for (i in genera) {
+  
+  result <- wilcox.test(counts[, i] ~ MSI.Status,
+                        data =counts)
+  
+  # Stores p-value to the vector with this column name
+  wilcoxon_de[[i]]  <- result$p.value
+  
+}
+
+wilcoxon_de <- data.frame(genes =  names(wilcoxon_de),
+                         p_raw = unlist(wilcoxon_de))
+wilcoxon_de$p_adjusted <- p.adjust(wilcoxon_de$p_raw, method = "fdr")
+wilcoxon_de_result=wilcoxon_de %>% filter(p_adjusted<0.05)
+
+write.csv(wilcoxon_de,'MSI_deg.csv')
+
+#Calculate logFC
+exp=eset1[,colnames(eset1) %in% rownames(gl)]
+MSI=exp[, colnames(exp) %in% rownames(gl[gl$MSI.Status=='MSI',]) ]
+MSS=exp[, colnames(exp) %in% rownames(gl[gl$MSI.Status=='MSS',]) ]
+foldChanges=log2(rowMeans(MSS)/rowMeans(MSI))
+foldChanges=data.frame(genes=names(foldChanges),
+                       log2FC=log2(rowMeans(MSS)/rowMeans(MSI)))
+mside=left_join(wilcoxon_de_result,foldChanges,by='genes')
+mside_result=mside %>% filter(abs(log2FC)>=2)
+exp_de=exp[rownames(exp) %in% mside_result$genes,]
+write.csv(exp_de,'MSIde_exp.csv')
+```
+
+By the way, it is possible to do go anlaysis, which is very simple with clusterprofiler, this author is definitely one of the best bioinformaticians in China. Here we can can also have a look on the enriched function of these DEGs.
+
+```{r GO}
+degs.list=rownames(mside_result)
+erich.go.BP = enrichGO(gene =degs.list,
+                       OrgDb = org.Hs.eg.db,
+                       keyType = "SYMBOL",
+                       ont = "BP",
+                       pvalueCutoff = 0.05,
+                       qvalueCutoff = 0.2)
+dotplot(erich.go.BP)
+
+```
+
+## Correlation between key genus and DEGs
+
+Now, let's back to our main job, which is to understand the correlation between DEGs and key species. These key species is defined as microbes identified as differential abundant in over two methods.
+
+```{r}
+#Sometimes it has a space at the beginning of genera name,like  " g__Parvimonas"
+
+wilcoxon_p1$taxa=trimws(wilcoxon_p1$taxa)
+df1$taxa=trimws(df1$taxa)
+key_species=union(union(intersect(df1$taxa,lefseq_result$Genus),
+                        intersect(df1$taxa,wilcoxon_p1$taxa)),
+                  intersect(lefseq_result$Genus,wilcoxon_p1$taxa))
+print(key_species)
+```
+
+Now using spearman to calculate the correlation in between
+
+```{r Spearman correlation}
+key_species= paste0(" ", key_species)
+clr=data.frame(assay(tse_genus,'clr'))
+clr=data.frame(clr[rownames(clr) %in% key_species,])
+clr=as.matrix(clr[,match(colnames(mside_result),colnames(clr))])
+mside_result=as.matrix(mside_result)
+
+#do spearman calculaton
+cor_matrix <- matrix(NA, nrow = nrow(clr), ncol = nrow(mside_result))
+rownames(cor_matrix) <- rownames(clr)
+colnames(cor_matrix) <- rownames(mside_result)
+for (i in 1:nrow(clr)) {
+  for (j in 1:nrow(mside_result)) {
+    cor_matrix[i, j] <- cor(clr[i, ], mside_result[j, ], method = "spearman")
+  }
+}
+
+rownames(cor_matrix)=sapply(as.vector(rownames(cor_matrix)), function(x) gsub(' g__','',x))
+
+#make a heatmap
+Heatmap(cor_matrix, name = "Spearman Correlation", 
+        row_names_gp = gpar(fontsize = 12, fontface = "italic"),
+        cluster_rows = T,
+        cluster_columns = T,
+        show_column_names = F,
+        show_column_dend = F)
+```

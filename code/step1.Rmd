@@ -1,0 +1,96 @@
+---
+title: "Import and preprocessed of data"
+author: "yt"
+date: "2024/8/29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Import microbial feature table
+
+First load packages that you may need
+
+```{r load package}
+
+library(tidyr)
+library(dplyr)
+library(magrittr)
+library(SummarizedExperiment)
+```
+
+Here import file 'kraken2_all_CRC_samples_biom.tsv'
+
+```{r newdata}
+#import data
+newdata=read.delim('kraken2_all_CRC_samples_biom.tsv',header=T)
+rownames(newdata)=newdata$taxonomy
+newdata=newdata[,c(-1,-164)]
+names=colnames(newdata)
+names=sapply(names,function(x) sub("^(X[0-9]+).*", "\\1",x))
+colnames(newdata)=names
+dim(newdata)#[1] 9718  162
+```
+
+Now if the filtration process
+
+1.  remain otu expressed in over half of samples
+
+```{r filtration}
+#remain otu stays in over half of samples
+newdata=newdata[apply(newdata,1,function(x) sum(x>0)>0.5*ncol(newdata)),]
+dim(newdata)
+```
+
+2.  Delete otu with unknow phylum,class,order,family,genera
+3.  Delete blacklist genera
+
+```{r filtration}
+
+newdata['Name']=rownames(newdata)
+#Delete otu with unknow phylum,class,order,family,genera
+RA_names=newdata %>% separate('Name', into=c('Kingdom','Phylum','Class','Order','Family','Genus','Species'),sep= ";")
+RA_names = RA_names[RA_names$Kingdom=='k__Bacteria' & RA_names$Genus!=" g__" & RA_names$Phylum!=' p__' & RA_names$Class!=' c__' & RA_names$Order!=' o__' & RA_names$Family!=' f__', ]
+
+#Deletion of black list
+blacklist=read.csv('SGCRCdata/blacklist_csv.csv',header=F)
+blacklist=paste0(' g__',blacklist$V1)
+RA_names=RA_names %>% filter(!Genus %in% blacklist)
+filtered_RA=newdata[rownames(newdata) %in% rownames(RA_names),]
+filtered_RA=filtered_RA[,-163]
+
+#calculate Relative abundance
+proportion <- as.data.frame(apply(filtered_RA, 2, function(x){x/sum(x)}))
+dim(filtered_RA)
+```
+
+## Transform to S6 object for further usage
+
+```{r transform to S6 object}
+#preparation of metadata
+load('filtered_matrix.Rdata')
+metadata=read.csv('SGCRCdata/SG-BULK_patient_clinical_information.csv',header=T)
+metadata$patient_id=paste0("X", metadata$patient_id)
+
+#select only samples with label MSI and MSS
+filtered_metadata <- metadata %>% filter(patient_id %in% colnames(eset1) & MSI.Status %in% c('MSS', 'MSI'))
+
+#three elements in S6 object: count matrix, coldata, rowdata
+
+counts=filtered_RA[, colnames(filtered_RA) %in% filtered_metadata$patient_id]
+coldata=filtered_metadata
+rownames(coldata)=coldata$patient_id
+counts=counts[,match(rownames(coldata),colnames(counts))]
+rowdata=RA_names[,c(163:169)]
+
+#build s6 object, here we create two for further usage
+tse=SummarizedExperiment(assays = SimpleList(counts=as.matrix(counts)),
+                         rowData = rowdata,
+                         colData = coldata)
+
+dataset <- microtable$new(sample_table = coldata , otu_table = counts, tax_table = rowdata)
+save(tse,dataset,file = 'tse.R')
+
+```

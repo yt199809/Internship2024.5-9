@@ -1,0 +1,105 @@
+---
+title: "Treatment of 16S data"
+author: "yt"
+date: "2024/8/30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Treatment of obtained 16S data
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(magrittr)
+library(microeco)
+library(ggplot2)
+```
+
+## Import data
+
+```{r}
+newdata=read.delim('feature-table_w_tax.tsv',skip = 1)
+newdata=newdata %>% filter(taxonomy!='Unassigned')
+rownames(newdata)=newdata$X.OTU.ID
+rowdata=newdata$taxonomy
+newdata=newdata[,c(-1,-27)]
+rowdata=as.data.frame(rowdata)
+rowdata=rowdata %>% separate('rowdata', into=c('Kingdom','Phylum','Class','Order','Family','Genus','Species'),sep= ";")
+rownames(rowdata)=rownames(newdata)
+
+# delete archaea from dataset
+rowdata=rowdata %>% filter(Kingdom!='d__Archaea')
+newdata=newdata[rownames(newdata) %in% rownames(rowdata),]
+dim(newdata)
+
+#The metadata were given by williem although I don't think it is complete
+metadata=read.delim('C:/Users/yutong/Desktop/metadata.txt',header=T,fileEncoding = 'UTF-16')
+coldata= data.frame(colnames(newdata))
+rownames(coldata)=coldata$colnames.newdata.
+coldata$sampleid=sapply(coldata$colnames.newdata.,function(x) gsub("\\.", "-", x) )
+coldata=coldata[,-1]
+coldata=merge(coldata,metadata,by='sampleid')
+rownames(coldata)=coldata$colnames.newdata.
+dataset <- microtable$new(otu_table = newdata, tax_table = rowdata,sample_table = coldata)
+dataset$tidy_dataset()
+print(dataset)
+dataset$sample_sums() %>% range
+
+
+dataset$cal_abund()
+dataset$taxa_abund$Genus
+```
+
+## Abundance of Microbes in different levels
+
+```{r}
+
+t1 <- trans_abund$new(dataset = dataset, taxrank = "Genus", ntaxa = 10)
+t1$plot_bar(others_color = "grey70", legend_text_italic = FALSE)+
+      theme(legend.text = element_text(size = 17),
+      axis.title.y = element_text(size=15),
+      axis.text.y =  element_text(size=12))
+t1 <- trans_abund$new(dataset = dataset, taxrank = "Phylum", ntaxa = 10)
+t1$plot_bar(others_color = "grey70",xtext_keep = FALSE, legend_text_italic = FALSE)+
+  theme(legend.text = element_text(size = 17),
+        axis.title.y = element_text(size=15),
+        axis.text.y =  element_text(size=12))
+
+```
+
+## Alpha and Beta diversity
+
+```{r}
+dataset$cal_alphadiv(PD = FALSE)
+dataset$cal_betadiv(unifrac =F)
+t1 <- trans_alpha$new(dataset = dataset, group = "nr")
+t1$cal_diff(method = "wilcox",p_adjust_method = 'fdr')
+t1$plot_alpha(measure = "Shannon", boxplot_add = "dotplot", xtext_size = 15,add_sig_label ='Significance'  )
+
+
+dataset$cal_betadiv(unifrac = F)
+t1 <- trans_beta$new(dataset = dataset  , group = 'Tumor_class',measure = "bray")
+t1$cal_ordination(ordination = "PCoA")
+class(t1$res_ordination)
+
+t1$plot_ordination(plot_color = "Tumor_class", plot_shape = "Tumor_class", plot_type = c("point", "ellipse"))+
+  geom_vline(aes(xintercept = 0),linetype="dotted")+
+  geom_hline(aes(yintercept = 0),linetype="dotted")+
+  theme(panel.background = element_rect(fill='white', colour='black'),
+        panel.grid=element_blank(), 
+        axis.title = element_text(color='black',size=16),
+        axis.title.x=element_text(colour='black', size=16),
+        axis.title.y=element_text(colour='black', size=16),
+        axis.text=element_text(colour='black',size=16),
+        legend.title=element_text(size =12,face = "bold"),
+        legend.text=element_text(size=16),
+        legend.key=element_blank(),legend.position = c(0.85,0.13),
+        legend.background = element_rect(colour = "black"),
+        legend.key.height=unit(1,"cm"))+
+  guides(fill = guide_legend(ncol = 1))
+
+```

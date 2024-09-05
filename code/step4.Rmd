@@ -1,0 +1,151 @@
+---
+title: "Network making"
+author: "yt"
+date: "2024/8/30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Network making
+
+```{r load packages}
+library(tidyr)
+library(dplyr)
+library(magrittr)
+library(SummarizedExperiment)
+library(NetCoMi)
+load(file = 'tse.R'
+```
+
+It is also good to know the co-occurrence pattern in microbial communities. One potential way is network. Here I use netcomi package published <https://doi.org/10.1093/bib/bbaa290>
+
+I noticed that there is also tutorial with mia team.
+
+<https://microbiome.github.io/OMA/docs/devel/>
+
+Here, SparCC network is built, the detailed methodology was used according to the report. These parameters were set similar to paper of
+
+<https://microbiome.github.io/OMA/docs/devel/>
+
+but at a simpler version as my computer gonna broken
+
+```{r}
+
+#double network
+
+pseq <- makePhyloseqFromTreeSummarizedExperiment(tse)
+pseq_genus <- phyloseq::tax_glom(pseq, taxrank = "Genus")
+
+#separate the data
+pseq_msi <- phyloseq::subset_samples(pseq_genus,MSI.Status == "MSI")
+pseq_mss <- phyloseq::subset_samples(pseq_genus,MSI.Status == "MSS")
+
+#construct networks 
+net_sparcc_msi <- netConstruct(data = pseq_msi,
+                               data2 = pseq_mss,
+                           measure = "sparcc",
+               #in the source code of sparcc,it alread normlize with clr
+                           measurePar = list(iter = 50,
+                                             inner_iter = 10,
+                                             th = 0.3,
+                                            nboot=100 # at least
+                           ),
+                           filtTax = "highestVar",
+                           filtTaxPar = list(highestVar = 50),
+                           #this variance is variance of p value
+                           filtSamp = 'totalReads',
+                           filtSampPar = list(totalReads=1000),
+                           sparsMethod = 'bootstrap',#pseudo p values
+                           adjust = 'lfdr',#adjust p value produced
+                           lfdrThresh = 0.05,
+                           verbose = 3,
+                          seed = 123456)
+
+#Hear is Pearson network, another option you could do, 
+net_person <- netConstruct(data=pseq_msi,
+                           data2=pseq_mss,
+                          filtTax = "highestFreq",
+                          filtTaxPar = list(highestFreq = 50),
+                          measure = "pearson",
+                          zeroMethod = "pseudo", 
+                          normMethod = "clr",
+                          sparsMethod = "threshold",
+                          filtSamp = 'highestFreq',
+                          filtSampPar = list(highestFreq=n_msi),
+                          thresh = 0.4,
+                          adjust = 'lfdr',
+                          lfdrThresh = 0.05,
+                          seed = 123456)
+```
+
+Next is to calculate some parameters of the network
+
+```{r}
+
+
+props_sparcc <- netAnalyze(net_sparcc_msi, 
+                           clustMethod = "cluster_fast_greedy",
+                           hubPar = c('eigenvector'),
+                           normDeg = FALSE)
+#making labels on graph
+labels <- sapply(as.vector(pseq_genus@tax_table[, "Genus"]), function(x) gsub('g__','',x))
+names(labels) <- rownames(pseq_genus@tax_table)
+phyla <- as.factor(sapply(as.vector(pseq_genus@tax_table[, "Phylum"]), function(x) gsub('p__','',x)))
+names(phyla) <-  rownames(pseq_genus@tax_table)
+
+# Create color vector
+Palette2 <- c('#8b8378','#458b74','#f0ffff','#eeb422','#ee6aa7','#8b3a62','#cd5c5c','#ee6363','#f0e68c','#e6e6fa','#add8e6','#bfefff','#f08080','#d1eeee','#7a8b8b','#8b814c','#8b5f65','gray','blue', 'orange', 'green', 'yellow', 'red', 'hotpink', 'cyan','purple', 'burlywood1','skyblue','grey')
+
+
+#plot it!
+plot(props_sparcc, 
+     sameLayout=TRUE,
+     layoutGroup='union',
+     rmSingle='inboth',
+     labels=labels,
+     repulsion=0.9,
+     nodeColor = "feature",
+     featVecCol = phyla, 
+     colorVec =  Palette2,
+     nodeTransp = 20,
+     sameColThresh = 2,
+     edgeFilter='threshold',
+     edgeFilterPar=0.2,
+     nodeSize = "clr",
+     labelScale = F,
+     labelFont = 2,
+     cexNodes = 2, 
+     cexLabels = 1,
+     cexHubLabels = 1,
+     cexTitle = 1,  
+     shortenLabels='intelligent',
+     edgeTranspHigh = 20,
+     title1 = 'MSI',
+     title2 = 'MSS',
+     showTitle = TRUE,
+     hubBorderCol  = "darkgray",
+     mar=c(1,4,4,4))
+
+#check some result 
+summary(props_sparcc, groupNames = c("MSI", "MSS"))
+
+#compare networks
+comp_sparcc<- netCompare(props_sparcc, 
+                          permTest = TRUE,
+                          verbose = FALSE,
+                          seed = 123456)
+
+
+#find significant differences between plots
+diff_pearson <- diffnet(props_sparcc,
+                       diffMethod = "fisherTest", 
+                       adjust = 'BH')
+
+```
+
+I didn't really ran it on my computer, because it is fragile and I ran it for too many times.
+
+You could see the result in the report

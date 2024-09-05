@@ -1,0 +1,198 @@
+---
+title: "Humann3"
+author: "yt"
+date: "2024/9/5"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Humann3
+
+```{r load packages}
+library(tidyr)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+```
+
+HUMAnN is a method for accurate profiling of the abundance of microbial metabolic pathways from high-quality metagenomics or metatranscriptomic sequencing data (reads). (<https://github.com/biobakery/biobakery/wiki/humann3>) For the output file of gene family abundance, it is firstly renorm into CPM. Then it is annotated based on KEGG database. The file is further stratified to retrieve ko terms to individual organisms.
+
+Humann3 now only support annotation on KO terms level. To see how it perform on pathway level, a table how it correspond to pathway level was retrieved from (<https://github.com/YongxinLiu/EasyMicrobiome/blob/master/README.md>), which is published on (<https://doi.org/10.1002/imt2.83>)
+
+## Pathway Abundance
+
+Codes next was used to understand the abundance of microbial function on a pathway level.
+
+```{r pathway level abundance}
+
+#Import KO data 
+ko_term=read.delim('KO1-4.txt')
+colnames(ko_term)=c("ID","PathwayL1","PathwayL2","Pathway", "KoDescription")
+ko_1=ko_term %>% group_by(PathwayL2) %>% summarise(KO=KO)
+
+#this data is retrived from Humann3
+ko=read.delim('names_sample_cp_ko_stratified.tsv')
+ko=ko %>% separate(X..Gene.Family,into = c('Function','Species'),sep='\\|')
+ko=ko%>% separate(Function,into=c('ID','Function'),sep = ': ')
+ko=ko %>% filter(ID!='UNGROUPED' & Function!='NO_NAME' & Species!='unclassified')
+ko_new=ko %>% group_by(ID) %>%  summarise(across(where(is.numeric), sum, na.rm = TRUE))
+names=ko_new$ID
+rownames(ko_new)=names
+ko_new=data.frame(ko_new)
+ko_new=ko_new[,c(-1)]
+colnames(ko_new)=sapply(colnames(ko_new),function(x) stri_extract_first_regex(x, "X[0-9]+"))
+
+#import metadata
+gl=filtered_metadata[colnames(ko_new) %in% rownames(filtered_metadata),]
+gl=filtered_metadata[match(colnames(ko_new) , rownames(filtered_metadata)),]
+group_list=factor(gl$MSI.Status)
+
+
+#separate Humann data by MSI status
+ko_msi=ko_new[,colnames(ko_new) %in% gl[gl$MSI.Status=='MSI',]$patient_id]
+ko_mss=ko_new[,colnames(ko_new) %in% gl[gl$MSI.Status=='MSS',]$patient_id]
+
+#Here we focuse on general pathway on Level2 
+pathway=unique(ko_term$PathwayL2)
+
+#calculate the abundance of ench pathway
+msi <- data.frame(matrix(0, nrow=length(pathway), ncol=ncol(ko_msi)))
+rownames(msi) <- pathway
+colnames(msi) <- colnames(ko_msi)
+
+mss <- data.frame(matrix(0, nrow=length(pathway), ncol=ncol(ko_mss)))
+rownames(mss) <- pathway
+colnames(mss) <- colnames(ko_mss)
+
+
+for (i in pathway) {
+  ko_list <- ko_1[ko_1$PathwayL2 == i,]$KO
+  msi_result <- ko_msi[rownames(ko_msi) %in% ko_list, , drop=FALSE]
+  msi[i, ] <- colMeans(msi_result, na.rm = TRUE)
+  
+  mss_result <- ko_mss[rownames(ko_mss) %in% ko_list, , drop=FALSE]
+  mss[i, ] <- colMeans(mss_result, na.rm = TRUE)
+}
+
+
+Pathway <- data.frame(matrix(0, nrow=length(pathway), ncol=0))
+rownames(Pathway)=pathway
+Pathway$MSI=rowSums(msi)
+Pathway$MSS=rowSums(mss)
+Pathway$sum=Pathway$MSI+Pathway$MSS
+print(Pathway)
+```
+
+## Differential Abundant KO terms
+
+Differential abundant KO terms could be import to illustrate the enriched function in microbial communities. Here I use wilcoxon rank sum test. Other methods like LEfSe can also be used as it is a sparse matrix. By the way, microeco also provide a function function and able to be used here.
+
+```{r Differential abundant KO terms}
+
+ko_2=ko %>% group_by(ID) %>%  summarise(across(where(is.numeric), sum, na.rm = TRUE))
+names=ko_2$ID
+ko_2=data.frame(ko_2)
+ko_2=ko_2[,c(-1)]
+rownames(ko_2)=names
+colnames(ko_2)=sapply(colnames(ko_2),function(x) stri_extract_first_regex(x, "X[0-9]+"))
+ko_2=ko_2[,colnames(ko_2) %in% rownames(gl)]
+
+#import overall metadata
+load('filtered_matrix.Rdata')
+metadata=read.csv('SG-BULK_patient_clinical_information.csv',header=T)
+metadata$patient_id=paste0("X", metadata$patient_id)
+filtered_metadata <- metadata %>% filter(patient_id %in% colnames(eset1) & MSI.Status %in% c('MSS', 'MSI'))
+rownames(filtered_metadata)=filtered_metadata$patient_id
+gl=filtered_metadata[colnames(ko_2) %in% rownames(filtered_metadata),]
+gl=filtered_metadata[match(colnames(ko_2) , rownames(filtered_metadata)),]
+group_list=factor(gl$MSI.Status)
+
+#Using Wilcoxon rank sum test
+counts=data.frame(t(ko_2))
+counts <- cbind(
+  counts, 
+  MSI.Status = group_list
+)
+
+
+wilcoxon_de <- c() # Initialize empty vector for p-values
+genera <- colnames(counts)[1:(ncol(counts) - 1)]  
+
+# Do "for loop" over selected column names
+for (i in genera) {
+  
+  result <- wilcox.test(counts[, i] ~ MSI.Status,
+                        data =counts)
+  
+  # Stores p-value to the vector with this column name
+  wilcoxon_de[[i]]  <- result$p.value
+  
+}
+
+wilcoxon_de <- data.frame(ko =  names(wilcoxon_de),
+                          p_raw = unlist(wilcoxon_de))
+wilcoxon_de$p_adjusted <- p.adjust(wilcoxon_de$p_raw, method = "fdr")
+wilcoxon_de_result=wilcoxon_de
+wilcoxon_de_result=wilcoxon_de %>% filter(p_raw<0.05)
+
+MSI=counts[counts$MSI.Status=='MSI',]
+MSS=counts[counts$MSI.Status=='MSS',]
+MSI=t(MSI[,-1155])
+MSS=t(MSS[,-1155])
+
+foldChanges=data.frame(ko=rownames(wilcoxon_de),
+                       log2FC=log2((rowMeans(MSS)+1)/(rowMeans(MSI)+1)))
+foldChanges=merge(foldChanges,wilcoxon_de,by='ko')
+
+mside=left_join(wilcoxon_de_result,foldChanges,by='ko')
+mside_result=mside %>% filter(abs(log2FC)>=1.5)
+colnames(mside)[1]='ID'
+ko_functions <- ko %>% dplyr::select(ID, Function) %>%  distinct(ID, .keep_all = TRUE)
+mside_result= mside %>% left_join(ko_functions,by='ID')
+
+# Here using vocalno plot to illustrate how the result perform
+foldChanges$Function <- ifelse(foldChanges$ko %in% top10$ID, 
+                         foldChanges$ko, 
+                         '')
+colnames(foldChanges)[3]='p_value'
+ggplot(foldChanges,aes(log2FC, -log10(p_value)))+
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#999999")+
+  geom_vline(xintercept = c(-1.2,1.2), linetype = "dashed", color = "#999999")+
+  geom_point(aes(size=-log10(p_value), color= -log10(p_value)))+
+  scale_color_gradientn(values = seq(0,1,0.2),
+                        colors = c("#39489f","#39bbec","#f9ed36","#f38466","#b81f25"))+
+  scale_size_continuous(range = c(1,3))+
+  theme_bw()+
+  theme(panel.grid = element_blank())
+
+```
+
+## 
+
+## Top 10 most important functions
+
+```{r top10 important KO terms}
+
+
+top10<- mside_result %>%
+  arrange(log2FC) %>%
+  slice_head(n=10)
+
+ggplot(top10, aes(x = Function, y =log2FC) )+ 
+  geom_bar(stat='identity',alpha=0.8,fill="#1B9E77") +
+  coord_flip()+
+  theme_bw() +
+  theme(axis.text.y = element_text(size=13,face='bold'),
+        axis.title.x = element_text(size=17),
+        legend.text = element_text(size=12),
+        axis.text = element_text(size=11),
+        axis.text.x = element_text(hjust =1),
+        legend.title = element_blank(),
+        panel.grid.major.x =element_blank(),
+        panel.grid.major.y=element_blank(),
+        title = element_text(size=12))
+
+```
