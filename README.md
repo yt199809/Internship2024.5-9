@@ -1,6 +1,3 @@
-## For who use the scripts
-
-Be caution when you use the script, cause it is a 'mediocre' work hhhhh I guess no one will have a look on it, so basiclly it is tutorial for myself...
 
 ## Aims of the codes
 
@@ -37,4 +34,5 @@ code are saved as rmarkdown
 13. Salter, S. J., Cox, M. J., Turek, E. M., Calus, S. T., Cookson, W. O., Moffatt, M. F., Turner, P., Parkhill, J., Loman, N. J., & Walker, A. W. (2014). Reagent and laboratory contamination can critically impact sequence-based microbiome analyses. BMC Biology, 12(1), 87. https://doi.org/10.1186/s12915-014-0087-z
 14. Segata, N., Izard, J., Waldron, L., Gevers, D., Miropolsky, L., Garrett, W. S., & Huttenhower, C. (2011). Metagenomic biomarker discovery and explanation. Genome Biology, 12(6), R60. https://doi.org/10.1186/gb-2011-12-6-r60
 15. Yu, G., Wang, L.-G., Han, Y., & He, Q.-Y. (2012). clusterProfiler: An R Package for Comparing Biological Themes Among Gene Clusters. OMICS: A Journal of Integrative Biology, 16(5), 284–287. https://doi.org/10.1089/omi.2011.0118
+
 
