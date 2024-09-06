@@ -13,6 +13,14 @@ This is a single cell papers that they use bulk transcriptome to validate their 
 In this project, the code will be used to explore microbial signature between MSI and MSS CRC (colorectal cancer) subtypes .
 The decotamination process was done with a pipline made by another student Birgit (https://github.com/BirgitRijvers/EMC-CanMic). Import data will be the abundance feature table outputed by a kraken/braken combination.
 
+## Content of code
+code are saved as rmarkdown
+- Step1: Import files
+- Step2: Relative abundance, alpha diversity and beta diversity
+- Step3: Differential abundant species
+- Step4: Network making
+- Step5: HUMAnN3
+
 ## References
 1. https://github.com/BirgitRijvers/EMC-CanMic
 2. Alcock, B. P., Huynh, W., Chalil, R., Smith, K. W., Raphenya, A. R., Wlodarski, M. A., Edalatmand, A., Petkau, A., Syed, S. A., Tsang, K. K., Baker, S. J. C., Dave, M., McCarthy, M. C., Mukiri, K. M., Nasir, J. A., Golbon, B., Imtiaz, H., Jiang, X., Kaur, K., … McArthur, A. G. (2023). CARD 2023: Expanded curation, support for machine learning, and resistome prediction at the Comprehensive Antibiotic Resistance Database. Nucleic Acids Research, 51(D1), D690–D699. https://doi.org/10.1093/nar/gkac920
